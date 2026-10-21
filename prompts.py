@@ -9,7 +9,7 @@ def main(self):
     self.detect_charge_prompt
 
 
-def detect_contradiction_prompt(report):
+def detect_contradiction_prompt(report): #prompt to check errors
     Contradiction_prompt = f'''
     Review the report given. Identify any contradictions only. Do not suggest any changes or add anything that was not mentioned. 
     Identify factual contradictions only.
@@ -24,7 +24,7 @@ def detect_contradiction_prompt(report):
 
     return response.output.json()
 
-def detect_uncertain_prompt(report):
+def detect_uncertain_prompt(report): #prompt to check clairity
     Uncertain_prompt = f'''
     Review the report given. Identify vague or incomplete language. Identify unclear pronouns, names, places, and objects.
     Return JSON format. 
@@ -37,7 +37,7 @@ def detect_uncertain_prompt(report):
 
     return response.output.json()
 
-def detect_charge_prompt(report):
+def detect_charge_prompt(report): #prompt to check charges
     Charge_prompt = f'''
     Review the report given. The officer selected Charge X. Determine whether the facts support each legal element. Do not recommed other charges.
     Return JSON format. 
@@ -51,3 +51,5 @@ def detect_charge_prompt(report):
         input = Charge_prompt
     )
     return response.output.json()
+
+#def detect_grammer_spelling(report):
