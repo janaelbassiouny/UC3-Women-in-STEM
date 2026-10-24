@@ -1,0 +1,28 @@
+{
+  "charges": [
+    {
+      "charge_id": "8_USC_1324",
+      "statute": "8 U.S.C. § 1324",
+      "description": "Bringing in and harboring certain aliens",
+      "source_file": "USC_1324.txt",
+      "review_status": "pending_legal_review",
+      "requirements": []
+    },
+    {
+      "charge_id": "8_USC_1325",
+      "statute": "8 U.S.C. § 1325",
+      "description": "Improper entry by alien",
+      "source_file": "USC_1325.txt",
+      "review_status": "pending_legal_review",
+      "requirements": []
+    },
+    {
+      "charge_id": "8_USC_1326",
+      "statute": "8 U.S.C. § 1326",
+      "description": "Reentry of removed aliens",
+      "source_file": "USC_1326.txt",
+      "review_status": "pending_legal_review",
+      "requirements": []
+    }
+  ]
+}
