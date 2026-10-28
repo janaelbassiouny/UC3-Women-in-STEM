@@ -5,16 +5,15 @@
 
 import os
 import json
-from openai import * #lalalalalallalala
-#from validators.missing_info import check_missing_info
-#from validators.charge_validator import validate_charge
-#from llm.llm_client import analyze_report
+from openai import OpenAI 
+from models.report import Report
+from validators.missing_info import check_missing_info
 
 client = OpenAI(
-    api_key=os.environ.get("gen_api_key") #this is a gemini api key cus the idk how to work the unissant one works rn. will look into others
+    api_key=os.environ.get("OPEN_API_KEY") 
 )
 
-System_prompt = f'''
+SYSTEM_PROMPT = f'''
 You are an experienced law enforcement report reviewer. You review all types of police reports from all over the United States. 
 
 Your responsibilites:
@@ -23,32 +22,73 @@ Your responsibilites:
 3. Identify unclear pronouns, names, places, and objects.
 4. Identify vague or incomplete language.
 5. Determine whether report facts support the selected charge given by the report.
-6. DO NOT recommend alternatice charges.
+6. DO NOT recommend alternative charges.
 7. DO NOT change or suggest different facts that are not already written.
 8. Only evalute the charge provided.
-9. Return strictly vaild JSON format. 
+9. Return strictly vaild JSON format. Do not include markdown. Do not include explanations outside JSON.
 '''
 
+report = Report()
 
-def analyze_report(report_text, charge, charge_elements): #main review functions that looks at the files you guys made.
+missing_fields = check_missing_info(report)
+if missing_fields:
+    print("Fix missing fields first")
+else:
+    ai_results = analyze_report(
+        report,
+        charge_elements,
+    )
+
+def analyze_report(report: Report, charge, charge_elements: list): #main review functions that looks at the files
+    """
+    Run full AI review on a report.
+
+    Parameters:
+    report : Report
+        Shared Report object
+    
+    charge_elements: list
+        Legal elements supplied by charge_validator.py
+    
+    Returns
+    dict
+        Parsed JSON results
+    """
+
     prompt = f'''
-    Report : {report_text}
-    Officer Selected Charge: {charge}
+    Report Information
+    Officer: {report.officer_name}
+    Subject: {report.subject_name}
+    Charge Code: {report.charge_code}
+
+    Facts: {report.facts}
+    Narrative: {report.narrative}
+    Evidence: {report.evidence}
+    Seized items: {report.seized_items}
     Charge Elements: {json.dumps(charge_elements, indent=4)}
-    Charge List: #insert virginia laws pdf here?
+
+
     TASKS:
     
     A. Contradictions
     -Find conflicting or impossible statements.
+    -Compare facts, narative, and evidence
+    -Identify conflicting statements.
+    -Identity impossible statements.
+    -Inconsistent timelines.
     
-    B. Vaugueness
+    B. Vagueness
+    -Identify unclear pronouns.
+    -Identify missing details.
     -Find incomplete wording. 
     -Find ambiguous references.
     -Find unsupported conclusions.
+    -Identify subjective wording.
     
     C. Grammar and Spelling 
     -Find grammer mistakes.
     -Find spelling errors.
+    -Find punctuation issues.
     -Suggest corrected wording.
     
     D. Charge Validation
@@ -56,31 +96,44 @@ def analyze_report(report_text, charge, charge_elements): #main review functions
     
     IMPORTANT:
     DO NOT recommend different charges. 
+    DO NOT suggest other charges
     
     Return JSON using this format: {{
-        "Grammar_issues": [],
-        "contradictions": [],
-        "Vague_issues": [],
-        "Charge_analysis: {{
+        "Grammar_issues": [
+        {{
+            "original": "",
+            "suggestion": "",
+            "reason": "",
+        }}
+    ],
+        "Contradictions": [
+        ""
+    ],
+        "Vague_issues": [
+        {{
+            "text": "",
+            "reason": "",
+        }}
+    ],
+        "Charge_analysis": {{
             "supported": true,
             "missing_elements": []
         }},
-        "Overall_comments": []
+        "Overall_comments": [
+        ""
+    ]
     }}
 '''
     response = client.responses.create(
         model = "gpt-5",
-        instructions = System_prompt,
+        instructions = SYSTEM_PROMPT,
         input = prompt
     )
-    return response.output_text
+    try:
+        result = json.loads(response.output_text)
 
-#missing_results = check_missing_info(report)
-
-#charge_results = validate_charge(report)
-
-#ai_results = analyze_report(
-    #report.narrative,
-    #report.charge_name,
-    #charge_results["elements"]
-#)
+    except json.JSONDecodeError:
+        return {
+            "error": "Invaild JSON response",
+            "raw_response": response.output_text
+        }
