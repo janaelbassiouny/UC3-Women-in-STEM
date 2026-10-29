@@ -6,6 +6,7 @@
 import os
 import json
 from openai import OpenAI 
+from pathlib import Path
 from models.report import Report
 from validators.missing_info import check_missing_info
 from validators.charge_validator import validate_charge
@@ -31,8 +32,24 @@ Your responsibilites:
 
 report = Report()
 
+def load_charges():
+    with open(
+        DATA_DIR / "charges.json",
+        "r",
+        encoding="utf-8"
+    ) as file:
+        return json.load(file)
 
-def analyze_report(report: Report, charge, charge_elements: list): #main review functions that looks at the files
+def load_requirements():
+    with open(
+        DATA_DIR / "charge_requirements.json",
+        "r",
+        encoding="utf-8"
+    ) as file:
+        return json.load(file)
+
+
+def analyze_report(report: Report, charges, charge_elements: list): #main review functions that looks at the files
     """
     Run full AI review on a report.
 
@@ -47,7 +64,20 @@ def analyze_report(report: Report, charge, charge_elements: list): #main review 
     dict
         Parsed JSON results
     """
+
     missing_fields = check_missing_info(report)
+    charges = load_charges()
+    requirements = load_requirements()
+    selected_charge = report.charge_code
+    charge_info = next(
+        (
+            charge
+            for charge in charges["charges"]
+            if charge["charge_id"] == selected_charge
+        ),
+        None
+    )
+    
     charge_validation = validate_charge(report.model_dump())
 
     prompt = f'''
