@@ -8,6 +8,7 @@ import json
 from openai import OpenAI 
 from models.report import Report
 from validators.missing_info import check_missing_info
+from validators.charge_validator import validate_charge
 
 client = OpenAI(
     api_key=os.environ.get("OPEN_API_KEY") 
@@ -30,14 +31,6 @@ Your responsibilites:
 
 report = Report()
 
-missing_fields = check_missing_info(report)
-if missing_fields:
-    print("Fix missing fields first")
-else:
-    ai_results = analyze_report(
-        report,
-        charge_elements,
-    )
 
 def analyze_report(report: Report, charge, charge_elements: list): #main review functions that looks at the files
     """
@@ -54,8 +47,15 @@ def analyze_report(report: Report, charge, charge_elements: list): #main review 
     dict
         Parsed JSON results
     """
+    missing_fields = check_missing_info(report)
+    charge_validation = validate_charge(report.model_dump())
 
     prompt = f'''
+    PRELIMINARY VALIDATION RESULTS
+    Missing Fields: {json.dumps(missing_fields, indent=4)}
+    Charge Validation Results: {json.dumps(charge_validation, indent=4)}
+
+
     Report Information
     Officer: {report.officer_name}
     Subject: {report.subject_name}
@@ -130,7 +130,12 @@ def analyze_report(report: Report, charge, charge_elements: list): #main review 
         input = prompt
     )
     try:
-        result = json.loads(response.output_text)
+        llm_results = json.loads(response.output_text)
+        return {
+            "missing_fields": missing_fields,
+            "charge_validation": charge_validation,
+            "llm_analysis": llm_results,
+        }
 
     except json.JSONDecodeError:
         return {
