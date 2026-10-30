@@ -7,21 +7,36 @@ class Report(BaseModel):
     officer_name: str
 
     report_date: str
-    incident_date: str
-
+    encounter_time: str
     port_of_entry: str
 
-    subject_name: str
-    passport_number: Optional[str] = None
-    nationality: Optional[str] = None
+    traveler_name: str
+    nationality: str
+    citizenship: str
 
+    passport_number: str | None = None
+    claimed_status: str
+
+    travel_documents: str
+    purpose_of_travel: str
     arrival_method: str
 
-    charge_code: str
+    traveler_statements: str
+    officer_observations: str
+    inspection_findings: str
 
-    facts: str
+    charge_code: str
+    ina_section: str
+    inadmissibility_explanation: str
+
+    traveler_response: str
+    officer_analysis_of_response: str
+
+    disposition: str
+    forms_used: str
+    supervisory_review: str
+    service_acknowledgement: str
+
     narrative: str
     evidence: str
-
-    seized_items: Optional[str] = None
 
