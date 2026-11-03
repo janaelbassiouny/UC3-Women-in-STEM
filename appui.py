@@ -1,11 +1,18 @@
 #interface for app
-
+import json
 import streamlit as st
+import PyPDF2
+
+from models.report import Report
+from validators.missing_info import check_missing_info
+from validators.charge_validator import validate_charge
+
+from llm.llmclient import analyze_report
 
 #Page configuration
 st.set_page_config(
     page_title= "Police Report Analyzer",
-    page_icon= "🚨"
+    page_icon= "🚨",
     layout= "wide",
 )
 
@@ -14,6 +21,58 @@ st.title("Police Report Analyzer")
 #Session state variables
 if "report_text" not in st.session_state:
     st.session_state.report_text = ""
+if "analysis_results" not in st.session_state:
+    st.session_state.analysis_results = None
+if "saved_reports" not in st.session_state:
+    st.session_state.saved_reports = []
+
+#Sidebar
+
+with st.sidebar:
+    st.title("Reports")
+
+    if st.button("New Report"):
+        st.session_state.report_text = ""
+        st.session_state.results = None
+
+    st.divider()
+
+    st.subheader("Saved Reports")
+
+    for i, item in enumerate(
+        st.session_state.saved_reports
+    ):
+        if st.button(
+            item["name"],
+            key=f"saved_{i}"
+        ):
+            st.session_state.report_text = item["text"]
+            st.session_state.results = item["results"]
+
+#Score bar
+
+score = 100
+
+if st.session_state.results:
+    score -= len(st.session_state.results["missing"]) * 5
+    score -= len(
+        st.session_state.results["ai"]
+        .get("contradictions", [])
+    ) * 10
+    score -= len(
+        st.session_state.results["ai"]
+        .get("grammer_issues", [])
+    ) * 2
+
+score = max(score, 0)
+
+st.metric(
+    "Report Quality Score",
+    f"{score}%"
+)
+
+st.progress(score / 100)
+
 
 #Two columns layout
 
@@ -21,60 +80,77 @@ left_col, right_col = st.columns([1,2])
 
 # Left column: Input/Review area
 with left_col:
-    st.subheader("Report Input")
+    st.subheader("Report Results")
 
-    upload_file = st.file_uploader("Upload a police report (PDF or text)", type=["pdf", "txt"])
+    upload_file = st.file_uploader(
+        "Upload Police Report",
+        type=["txt", "pdf", "docx"]
+    )
+        
+    if upload_file:
+        text = upload_file.read().decode("utf-8")
+        st.session_state.report_text = text
 
-    if upload_file is not None: #file upload and get the text 
-        if upload_file.type == "application/pdf":
-            import PyPDF2
-            pdf_reader = PyPDF2.PdfReader(upload_file)
-            report_text = ""
-            for page in pdf_reader.pages:
-                report_text += page.extract_text()
-        else:
-            report_text = upload_file.read().decode("utf-8")
+    if st.button("Analyze Report"):
+        results = analyze_report(
+        officer_id = " ",
+        officer_name = " ",
+        report_date = " ", 
+        incident_date = " ",
+        port_of_entry = " ",
+        subject_name = " ",
+        arrival_method = " ",
+        charge_code = " ",
+        facts = report_text,
+        narrative = report_text,
+        evidence = " "
+    )
 
-        st.session_state.report_text = report_text
+    with st.spinner("Analyzing Report..."):
+        missing = check_missing_info(report)
+        charge_results = validate_charge(report.model_dump)
+        ai_results = analyze_report(report, [])
+        st.session_state.results = {
+            "missing": missing,
+            "charge": charge_results,
+            "ai": ai_results
+        }
+
+    results = st.session_state.results
+    if results:
+        st.divider()
+
+        #Missing Info
+        st.subheader("Missing Information")
+        for item in results["missing"]:
+            with st.expander(f"Missing: {item}"):
+                st.error(item)
+
+        #Contradictions
+        st.subheader("Contradictions")
+        for item in results["ai"].get("contradictions", []):
+            with st.expander("Potential Contradiction"):
+                st.warning(item)
+
+        #Grammar
+        st.subheader("Grammar")
+        for item in results["ai"].get("grammar_issues", []):
+            with st.expander(item.get("original", "Grammar Issue")):
+                st.error(item.get("reason", " "))
+                st.success(item.get("suggestion", " "))
+
+        #Vague Language 
+        st.subheader("Vauge Language")
+        for item in results["ai"].get("vauge_issues", []):
+            with st.expander(item.get("text", "issue")):
+                st.warning(item.get("reason", " "))
 
     st.divider()
 
     st.markdown("### Report Review") #app explaination
     st.info("The AI will analyze the report for contradictions, grammar issues, vague language, and charge validation.\n")
     st.info("Please ensure the report is clear and complete before submission. The AI will not suggest alternative charges or modify facts.\n")
-    st.info("The AI will return a JSON output with the following structure:\n"
-            "```json\n"
-            "{\n"
-            '    "Grammar_issues": [],\n'
-            '    "contradictions": [],\n'
-            '    "Vague_issues": [],\n'
-            '    "Charge_analysis": {\n'
-            '        "supported": true,\n'
-            '        "missing_elements": []\n'
-            '    },\n'
-            '    "Overall_comments": []\n'
-            "}\n"
-            "```\n"
-        )
-    
-    #checker thingys
-    st.markdown("### Grammar and Spelling Issues")
-    st.info("No grammar or spelling issues found in the report.")  #replace with grammer file
-
-    st.markdown("### Contradictions")
-    st.info("No contradictions found in the report.") #replace with contradiction file
-
-    st.markdown("### Vague or Incomplete Language")
-    st.info("No vague or incomplete language found in the report.") #replace with imcomplete file
-
-    st.markdown("### Charge Validation")
-    st.info("The report supports the selected charge. All required elements are present.") #replace with charge file
-
-    st.markdown("### Overall Comments")
-    st.info("The report is clear, complete, and supports the selected charge. No issues were found during the analysis.")
-
-    st.divider()
-
+   
     #chat box start
     st.markdown("### Review Chat")
     user_input = st.text_area("Enter your questions or comments about the report:", height=150)
@@ -89,41 +165,57 @@ with left_col:
 
 with right_col:
     st.subheader("Police Report Display")
-    report_text = st.text_area("Report Content", value=st.session_state.report_text, height=400)
+    report_text = st.text_area(" ", value=st.session_state.report_text, height=700)
     st.session_state.report_text = report_text
+
+    st.divider()
 
     if st.session_state.report_text:
         st.text_area("Report Content", value=st.session_state.report_text, height=400)
     else:
         st.info("Please upload a report to display its content.")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Check Report"):
-            st.success(
-                "Analysis started."
+        if st.button("Save Report"):
+            st.session_state.saved_reports.append(
+                {
+                "Name": f"Report {datetime.now().strftime('%H:%M:%S')}",
+                "text": st.session_state.report_text,
+                "results": st.session_state.results,
+                }
             )
+            st.success("Report Saved")
     
     with col2:
-        if st.button("Save Draft"):
-            st.success(
-                "Draft saved"
-            )
-
-    with col3:
         if st.button("Export Results"):
-            st.succuess(
-                "Export complete"
+            st.success(
+                "Export coming soon"
             )
 
 #End Metrics
 
-st.divider()
-m1, m2, m3, m4 = st.columns(4)
+if st.session_state.results:
+    results = st.session_state.results
+    st.divider()
 
-m1.metrics("Issues Found", "0") 
-m2.metrics("Charge Support", "100%")
-m3.metrics("Grammar Score", "100%")
-m4.metrics("Report Quality", "100%")
+    m1, m2, m3, m4 = st.columns(4)
 
+    m1.metric("Missing Fields", len(results["missing"]))
+    m2.metric("Contradictions", len(results["ai"].get("contradictions", [])))
+    m3.metric("Grammar Issues", len(results["ai"].get("grammar_issues", [])))
+    charge_analysis = (results["ai"].get("charge_analysis", {}))
+    m4.metric("Charge Supported", "✅"
+              if charge_analysis.get(
+                  "supported",
+                  False
+              )
+              else "❌"
+            )
+
+#JSON Debug view
+if st.session_state.results:
+    with st.expander("Raw JSON Results"):
+        st.json(st.session_state.results)
+        
