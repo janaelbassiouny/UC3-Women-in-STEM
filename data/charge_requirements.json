@@ -1,0 +1,22 @@
+{
+  "requirements": [
+    {
+      "requirement_id": "1325_a_1_entry_or_attempt",
+      "charge_id": "8_USC_1325",
+      "subsection": "1325(a)(1)",
+      "description": "Entry or attempted entry",
+      "report_field": "entry_event",
+      "source_file": "USC_1325.txt",
+      "review_status": "pending_legal_review"
+    },
+    {
+      "requirement_id": "1325_a_1_time_or_place",
+      "charge_id": "8_USC_1325",
+      "subsection": "1325(a)(1)",
+      "description": "Entry or attempted entry at a time or place other than as designated by immigration officers",
+      "report_field": "entry_time_or_place",
+      "source_file": "USC_1325.txt",
+      "review_status": "pending_legal_review"
+    }
+  ]
+}
