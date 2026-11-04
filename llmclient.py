@@ -5,14 +5,16 @@
 
 import os
 import json
-from openai import OpenAI 
+from time import sleep
+from click import prompt
+from google import genai
 from pathlib import Path
 from models.report import Report
 from validators.missing_info import check_missing_info
 from validators.charge_validator import validate_charge
 
-client = OpenAI(
-    api_key=os.environ.get("OPEN_API_KEY") 
+client = genai.Client(
+    api_key=os.getenv("GEMINI_API_KEY") 
 )
 
 SYSTEM_PROMPT = f'''
@@ -30,7 +32,8 @@ Your responsibilites:
 9. Return strictly vaild JSON format. Do not include markdown. Do not include explanations outside JSON.
 '''
 
-report = Report()
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 def load_charges():
     with open(
@@ -88,13 +91,12 @@ def analyze_report(report: Report, charges, charge_elements: list): #main review
 
     Report Information
     Officer: {report.officer_name}
-    Subject: {report.subject_name}
+    Traveler: {report.traveler_name}
     Charge Code: {report.charge_code}
 
-    Facts: {report.facts}
     Narrative: {report.narrative}
     Evidence: {report.evidence}
-    Seized items: {report.seized_items}
+    Inspection Findings: {report.inspection_findings}
     Charge Elements: {json.dumps(charge_elements, indent=4)}
 
 
@@ -154,13 +156,25 @@ def analyze_report(report: Report, charges, charge_elements: list): #main review
     ]
     }}
 '''
-    response = client.responses.create(
-        model = "gpt-5",
-        instructions = SYSTEM_PROMPT,
-        input = prompt
-    )
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=f"""
+                {SYSTEM_PROMPT}
+                Return ONLY valid JSON.
+                {prompt}
+                """
+            )
+            break
+        except Exception as e:
+            print(f"Error occurred: {attempt + 1}")
+            sleep(5)
+    else:
+        return {"error": "Failed to generate LLM response"}
+
     try:
-        llm_results = json.loads(response.output_text)
+        llm_results = json.loads(response.text)
         return {
             "missing_fields": missing_fields,
             "charge_validation": charge_validation,
@@ -169,6 +183,8 @@ def analyze_report(report: Report, charges, charge_elements: list): #main review
 
     except json.JSONDecodeError:
         return {
-            "error": "Invaild JSON response",
-            "raw_response": response.output_text
+            "error": "Invalid JSON response",
+            "raw_response": response.text
         }
+
+
