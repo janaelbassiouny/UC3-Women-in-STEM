@@ -16,8 +16,8 @@
 <h2>Team</h2>
 <ul>
   <li>Larissa Nogueira</li>
-  <li>Arunima </li>
-  <li>Jana </li>
+  <li>Arunima Awula</li>
+  <li>Jana Elbassiouny</li>
   <li>Mehnaz Iqbal</li>
 </ul>
 
