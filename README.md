@@ -18,7 +18,7 @@
   <li>Larissa Nogueira</li>
   <li>Arunima </li>
   <li>Jana </li>
-  <li>Mehnaz </li>
+  <li>Mehnaz Iqbal</li>
 </ul>
 
 <h3>Installation</h3>
