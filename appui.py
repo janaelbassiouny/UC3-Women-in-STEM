@@ -1,7 +1,9 @@
 #interface for app
 import json
 from datetime import datetime
+from pathlib import Path
 import streamlit as st
+from streamlit_pdf_viewer import pdf_viewer
 import PyPDF2
 
 from models.report import Report
@@ -10,7 +12,17 @@ from validators.charge_validator import validate_charge
 
 from llm.llmclient import analyze_report
 from database import save_report, get_reports, load_report
+from export_pdf import export_results
 
+BASE_DIR = Path(__file__).resolve().parent
+with open(BASE_DIR / "data" / "charges.json", "r", encoding="utf-8") as f:
+    charges = json.load(f)
+
+def get_charge_description(charge_code):
+    for charge in charges["charges"]:
+        if charge["charge_id"] == charge_code:
+            return charge["description"]
+    return "Description not found"
 
 #Page configuration
 st.set_page_config(
@@ -26,12 +38,14 @@ st.markdown("""
 <style>
 .main {background-color:#f4f7c;}
 
-.issue-red{border-left:5px solid #ef4444; padding:8px;}
-.issue-yellow:{border-left:5px solid #f59e0b; padding:8px;}
-.issue-green:{border-left:5px solid #22c55e; padding:8px;}
-
 html, body, [class*="css"] {font-family:"Inter", sans-serif;}
 
+.issue-card{background:white; border-radius:14px; padding:15px; margin-bottom:10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+.result-card {background-color:#f9f9f9; border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+.grammar {border-left:5px solid #3b82f6; padding:8px;}
+.contradiction{border-left:5px solid #ef4444; padding:8px;}
+
+.success{border-left:5px solid #22c55e; padding:8px;}
 </style>
 """,
 unsafe_allow_html=True)
@@ -45,6 +59,8 @@ if "saved_reports" not in st.session_state:
     st.session_state.saved_reports = []
 if "results" not in st.session_state:
     st.session_state.results = None
+if "selected_issue" not in st.session_state:
+    st.session_state.selected_issue = ""
 
 #Sidebar
 
@@ -54,20 +70,25 @@ with st.sidebar:
     if st.button("New Report"):
         st.session_state.report_text = ""
         st.session_state.results = None
+        st.rerun()
 
     st.divider()
 
     st.subheader("Saved Reports")
 
-    #history = get_reports()
-    #for row in history:
-        #report_id = row[0]
-        #report_name = row[1]
+    history = get_reports()
+    for row in history:
+        report_id = row[0]
+        report_name = row[1]
 
-        #if st.button(report_name, key=report_id):
-            #loaded = load_report(report_id)
-            #st.session_state.report_text = loaded[0]
-            #st.session_state.results = json.loads(loaded[1])
+        if st.button(f"{report_name}", key=f"report_{report_id}"):
+            loaded = load_report(report_id)
+            st.session_state.report_text = loaded[0]
+            st.session_state.results = json.loads(loaded[1])
+            pdf_path = loaded[2]
+            if pdf_path:
+                with open(pdf_path, "rb") as file:
+                    pdf_viewer(pdf_file.read())
 
 #Score bar
 
@@ -100,15 +121,25 @@ left_col, right_col = st.columns([1,2])
 
 # Left column: Input/Review area
 with left_col:
+    st.header("Report Review") #app explaination
+    st.info("The AI will analyze the report for contradictions, grammar issues, vague language, and charge validation.\n")
+    st.info("Please ensure the report is clear and complete before submission. The AI will not suggest alternative charges or modify facts.\n")
+   
     st.subheader("Report Results")
 
     upload_file = st.file_uploader(
         "Upload Police Report",
         type=["txt", "pdf", "docx"]
     )
-        
+    SAVE_DIR = Path("saved_reports")
+    SAVE_DIR.mkdir(exist_ok=True)
+
+    pdf_path = None
     if upload_file:
         if upload_file.type == "application/pdf":
+            pdf_path = (SAVE_DIR / upload_file.name)
+            with open(pdf_path, "wb") as f:
+                f.write(upload_file.getvalue())
             pdf = PyPDF2.PdfReader(upload_file)
             text = ""
 
@@ -163,121 +194,195 @@ with left_col:
 
     results = st.session_state.results
     if results:
+        charge_info = next(
+            (charge for charge in charges["charges"]
+             if charge["charge_id"] == "8_USC_1325"),
+            {},
+        )
         st.divider()
 
         ai = results["ai"]
-        st.subheader("Issues Found")
+        st.header("Issues Found")
 
         #Missing Info
         st.subheader("Missing Information")
         for item in results["missing"]:
-            with st.expander(f"Missing: {item}"):
-                st.error(item)
+            if st.button(f"Missing: {item}"):
+                st.session_state.selected_issue = item
 
         #Contradictions
         st.subheader("Contradictions")
         for item in results["ai"].get("contradictions", []):
-            with st.expander("Potential Contradiction"):
-                st.warning(item)
+            st.session_state.selected_issue = item
+            st.markdown(f"""
+                <div class="issue-card contradiction">
+                    <h5>Contradiction</h5>
+                    <p>{item}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
         #Grammar
         st.subheader("Grammar")
         for item in results["ai"].get("grammar_issues", []):
-            with st.expander(item.get("original", "Grammar Issue")):
-                st.error(item.get("reason", " "))
-                st.success(item.get("suggestion", " "))
+            st.session_state.selected_issue = item
+            st.markdown(f"""
+                <div class="issue-card grammar">
+                    <h5>Grammar Issue</h5>
+                    <b>Original:</b>
+                    {item['original']}
+                    <br>
+                    <b>Suggestion:</b>
+                    {item['suggestion']}
+                </div>
+                """, unsafe_allow_html=True)
 
         #Vague Language 
-        st.subheader("Vauge Language")
-        for item in results["ai"].get("vauge_issues", []):
-            with st.expander(item.get("text", "issue")):
-                st.warning(item.get("reason", " "))
+        st.subheader("Vague Language")
+        for item in results["ai"].get("vague_issues", []):
+            st.session_state.selected_issue = item
+            st.markdown(f"""
+                <div class="issue-card vague">
+                    <h5>Vague Language</h5>
+                    <b>{item['text']}</b>
+                    <br>
+                    <b>Reason:</b>
+                    {item['reason']}
+                </div>
+                """, unsafe_allow_html=True
+                )
+            
+        charge_elements = []
+        missing_elements = []
+
+        charge_analysis = ai.get("llm_analysis", {}).get("Charge_analysis", {})
+        if isinstance(charge_analysis, dict):
+            missing_elements = charge_analysis.get("missing_elements", [])
+            charge_elements = charge_analysis.get("supported_elements", [])
 
         st.subheader("Charge Elements")
-        charge_analysis = ai.get("charge_analysis", {})
-        missing_elements = (charge_analysis.get("missing_elements", []))
+        st.markdown(f"""
+        <div class="result-card">
+        <h5>Supported Elements:</h5>
+        attempted entry
+        <br><br>
+
+        <b>Relevant Statute:</b>
+        {charge_info.get("statute", "Not available")}
+        </div>
+        """, unsafe_allow_html=True)
+        for element in charge_elements:
+            if element not in missing_elements:
+                st.markdown(f"- {element}")
+            else:
+                st.markdown(f"- {element} (Missing)")
+
+        st.subheader("Charge Requirements")
+        for requirement in charge_info["requirements"]:
+            if requirement not in missing_elements:
+                st.markdown(f"""
+                <div class="requirement-card-success">
+                    <b>{requirement}</b>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="requirement-card-failure">
+                    <b>{requirement}</b>
+                </div>
+                """, unsafe_allow_html=True)
 
     st.divider()
+#Law References
 
-    st.markdown("### Report Review") #app explaination
-    st.info("The AI will analyze the report for contradictions, grammar issues, vague language, and charge validation.\n")
-    st.info("Please ensure the report is clear and complete before submission. The AI will not suggest alternative charges or modify facts.\n")
-   
-    #chat box start
-    st.markdown("### Review Chat")
-    user_input = st.text_area("Enter your questions or comments about the report:", height=150)
-    if st.button("Submit Review"):
-        st.info("Thank you for your review. Your comments have been submitted.")
-        if user_input:
-            st.write("Your comments:")
-            st.write(user_input)
+    if st.session_state.results:
+        st.divider()
+    charge_info = None
+    if st.session_state.results:
+        charge_results = (st.session_state.results["charge"])
+        selected_charge = charge_results.get("charge_code")
+        if selected_charge:
+            charge_info = get_charge_description(selected_charge)
+
+    if charge_info:
+        st.markdown(f"""<div class="result-card good">
+        <h4>Legal Reference:</h4>
+        <b>Statute:</b>
+        {charge_info.get("statute", "Not available")}
+        <br>
+        <b>Description:</b>
+        {charge_info.get("description", "Description not available")}
+        </div>""", unsafe_allow_html=True)
+    if charge_info:
+        with st.expander("View Source Law"):
+            source_file = charge_info.get("source_file")
+            law_file = BASE_DIR / "data" / "extracted_text" / source_file if source_file else None
+            if law_file and law_file.exists():
+                law_text = law_file.read_text(encoding="utf-8")
+                st.text_area("Referenced Statute", value=law_text, height=300)
+    else:
+        st.info("No legal reference available.")
 
 
 #Right Side Column: Report Display
 
 with right_col:
-    st.subheader("Police Report Display")
-    report_text = st.text_area(" ", value=st.session_state.report_text, height=700)
-    st.session_state.report_text = report_text
-
+    st.subheader("Police Report")
+    if upload_file is not None:
+        if upload_file.type == "application/pdf":
+            st.markdown("""
+            <div style="
+                background:white; 
+                padding:15px;
+                border-radius:8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+                ">
+                <h4>Uploaded PDF Report</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            pdf_viewer(upload_file.getvalue(), width=900)
+        else:
+            st.markdown("""
+            <div style="
+                background:white; 
+                padding:15px;
+                border-radius:8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+                ">
+            """,unsafe_allow_html=True)
+            st.text(st.session_state.report_text)
+            st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info("Upload a report to begin analysis.")
+        
     st.divider()
 
-    if st.session_state.report_text:
-        st.text_area("Report Content", value=st.session_state.report_text, height=400)
-    else:
-        st.info("Please upload a report to display its content.")
-
     col1, col2 = st.columns(2)
-
-    st.subheader("Report Viewer")
-
-    highlighted_text = (st.session_state.get("report_text", ""))
-    if st.session_state.results:
-        ai = (st.session_state.results["ai"])
-
-        #grammar highlights
-        for issue in ai.get("grammar_issues", []):
-            original = issue.get("original", "")
-            highlighted_text = (highlighted_text.replace(original, f"""
-            <span style="background-color:#7dd3fc; padding:2px; "> {original} </span>
-            """))
-
-        #vague wording higlights
-        for issue in ai.get("vague_issues", []):
-            text = issue.get("text", "")
-            highlighted_text = (highlighted_text.replace(text, f"""
-            <span style="background-color:#fde68a; padding:2px;"> {text} </span> 
-            """))
-
-    st.markdown(highlighted_text, unsafe_allow_html=True)
 
     #Save Report
 
     with col1:
         if st.button("Save Report"):
-            st.session_state.saved_reports.append(
-                {
-                "Name": f"Report {datetime.now().strftime('%H:%M:%S')}",
-                "text": st.session_state.report_text,
-                "results": st.session_state.results,
-                }
+            save_report(
+                report_name = f"Report {datetime.now().strftime('%H:%M:%S')}",
+                report_text = st.session_state.report_text,
+                analysis_json = st.session_state.results,
+                pdf_path = str(pdf_path) if pdf_path else None
             )
             st.success("Report Saved")
+            st.write(get_reports())
     
     with col2:
         if st.button("Export Results"):
+            pdf_file = export_results(st.session_state.results)
+            with open(pdf_file, "rb") as f:
+                st.download_button("Download PDF", f, file_name="PR_Results.pdf")
+
             st.success(
                 "Export coming soon"
             )
 
-#Law References
-
-if st.session_state.results:
-    st.divider
-    st.subheader("Legal References")
-
-    charge_result = (st.session_state.results["charge"])
-    st.json(charge_result)
 
 #End Metrics
 
