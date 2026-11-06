@@ -22,10 +22,11 @@
 </ul>
 
 <h3>Installation</h3>
+<p>Download requirements.txt file</p>
 <b>pip install -r requirements.txt</b>
 
 <h4>On a terminal:</h4>
-<b>streamlit run AppUI.py</b>
+<b>python -m streamlit run AppUI.py</b>
 
 <h3>Live Demo</h3>
 <p>Added after delpoyment</p>
