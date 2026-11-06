@@ -1,0 +1,31 @@
+<h1>AI Police Report Reviewer</h1>
+<br>
+<p>AI-assisted police report review and charge validation tool.</p>
+
+<h2>Features</h2>
+<ul>
+  <li>PDF Upload</li>
+  <li>Charge Vaildation</li>
+  <li>Missing information and Contradiction Detection</li>
+  <li>Grammar Review</li>
+  <li>Legal Reference Viewer</li>
+  <li>Report History</li>
+  <li>PDF Export</li>
+</ul>
+
+<h2>Team</h2>
+<ul>
+  <li>Larissa Nogueira</li>
+  <li>Arunima </li>
+  <li>Jana </li>
+  <li>Mehnaz </li>
+</ul>
+
+<h3>Installation</h3>
+<b>pip install -r requirements.txt</b>
+
+<h4>On a terminal:</h4>
+<b>streamlit run AppUI.py</b>
+
+<h3>Live Demo</h3>
+<p>Added after delpoyment</p>
