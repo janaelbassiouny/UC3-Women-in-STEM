@@ -21,8 +21,8 @@ with open(BASE_DIR / "data" / "charges.json", "r", encoding="utf-8") as f:
 def get_charge_description(charge_code):
     for charge in charges["charges"]:
         if charge["charge_id"] == charge_code:
-            return charge["description"]
-    return "Description not found"
+            return charge
+    return None
 
 #Page configuration
 st.set_page_config(
@@ -41,8 +41,15 @@ st.markdown("""
 html, body, [class*="css"] {font-family:"Inter", sans-serif;}
 
 .issue-card{background:white; border-radius:14px; padding:15px; margin-bottom:10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
-.result-card {background-color:#f9f9f9; border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
-.grammar {border-left:5px solid #3b82f6; padding:8px;}
+.result-card {
+    background-color: white;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 12px;
+    box-shadow:
+        0 2px 6px rgba(0,0,0,.08);
+}.grammar {border-left:5px solid #3b82f6; padding:8px;}
 .contradiction{border-left:5px solid #ef4444; padding:8px;}
 
 .success{border-left:5px solid #22c55e; padding:8px;}
@@ -88,7 +95,7 @@ with st.sidebar:
             pdf_path = loaded[2]
             if pdf_path:
                 with open(pdf_path, "rb") as file:
-                    pdf_viewer(pdf_file.read())
+                    pdf_viewer(file.read())
 
 #Score bar
 
@@ -207,8 +214,12 @@ with left_col:
         #Missing Info
         st.subheader("Missing Information")
         for item in results["missing"]:
-            if st.button(f"Missing: {item}"):
-                st.session_state.selected_issue = item
+            st.markdown(f"""
+                <div class="issue-card missing">
+                <h5>Missing Information</h5>
+                <b>{item}</b>
+                </div>
+                """, unsafe_allow_html=True)
 
         #Contradictions
         st.subheader("Contradictions")
@@ -277,48 +288,57 @@ with left_col:
                 st.markdown(f"- {element} (Missing)")
 
         st.subheader("Charge Requirements")
-        for requirement in charge_info["requirements"]:
-            if requirement not in missing_elements:
-                st.markdown(f"""
-                <div class="requirement-card-success">
-                    <b>{requirement}</b>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="requirement-card-failure">
-                    <b>{requirement}</b>
-                </div>
-                """, unsafe_allow_html=True)
+        requirements_html = ""
+        for req in charge_info.get("requirements",[]):
+            requirements_html += f"""
+            <li>{req}</li>
+            """
+        st.markdown(f"""
+            <div class="result-card">
+            <h5>Charge Requirements</h5>
+            <ul>{requirements_html}</ul>
+            </div> 
+            """,
+            unsafe_allow_html=True
+            )
 
     st.divider()
 #Law References
 
-    if st.session_state.results:
-        st.divider()
+    st.divider()
+    st.subheader("Legal Reference")
+
     charge_info = None
     if st.session_state.results:
-        charge_results = (st.session_state.results["charge"])
-        selected_charge = charge_results.get("charge_code")
-        if selected_charge:
-            charge_info = get_charge_description(selected_charge)
+        try:
+            charge_info = next(
+            (charge for charge in charges["charges"] 
+            if charge["charge_id"] == "8_USC_1325"),
+            None )
+        except Exception:
+            charge_info = None
 
     if charge_info:
-        st.markdown(f"""<div class="result-card good">
-        <h4>Legal Reference:</h4>
-        <b>Statute:</b>
-        {charge_info.get("statute", "Not available")}
-        <br>
-        <b>Description:</b>
-        {charge_info.get("description", "Description not available")}
-        </div>""", unsafe_allow_html=True)
-    if charge_info:
-        with st.expander("View Source Law"):
-            source_file = charge_info.get("source_file")
-            law_file = BASE_DIR / "data" / "extracted_text" / source_file if source_file else None
-            if law_file and law_file.exists():
-                law_text = law_file.read_text(encoding="utf-8")
-                st.text_area("Referenced Statute", value=law_text, height=300)
+        st.markdown( f"""
+        <div class="result-card">
+        <h4>{charge_info["statute"]}</h4>
+        <p>{charge_info["description"]}</p>
+        </div>""",
+        unsafe_allow_html=True
+        )
+
+        source_file = charge_info.get("source_file")
+
+        if source_file:
+            law_file = (BASE_DIR / "data" / "extracted_text" / source_file)
+
+            if law_file.exists():
+                with st.expander("View Source Law"):
+                    law_text = (law_file.read_text(encoding="utf-8"))
+                    st.text_area("Referenced Statute",value=law_text,height=350)
+            else:
+                st.warning(f"Source file not found: {source_file}")
+
     else:
         st.info("No legal reference available.")
 
