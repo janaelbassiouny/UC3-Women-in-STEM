@@ -1,4 +1,5 @@
 #interface for app
+import io
 import json
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from validators.missing_info import check_missing_info
 from validators.charge_validator import validate_charge
 
 from llm.llmclient import analyze_report
+from llm.extractor import extract_data_report, report_from_dict
 from database import save_report, get_reports, load_report
 from export_pdf import export_results
 
@@ -68,6 +70,8 @@ if "results" not in st.session_state:
     st.session_state.results = None
 if "selected_issue" not in st.session_state:
     st.session_state.selected_issue = ""
+if "report_data" not in st.session_state:
+    st.session_state.report_data = None  # parsed JSON upload, if any
 
 #Sidebar
 
@@ -76,6 +80,7 @@ with st.sidebar:
 
     if st.button("New Report"):
         st.session_state.report_text = ""
+        st.session_state.report_data = None
         st.session_state.results = None
         st.rerun()
 
@@ -91,6 +96,7 @@ with st.sidebar:
         if st.button(f"{report_name}", key=f"report_{report_id}"):
             loaded = load_report(report_id)
             st.session_state.report_text = loaded[0]
+            st.session_state.report_data = None
             st.session_state.results = json.loads(loaded[1])
             pdf_path = loaded[2]
             if pdf_path:
@@ -136,83 +142,121 @@ with left_col:
 
     upload_file = st.file_uploader(
         "Upload Police Report",
-        type=["txt", "pdf", "docx"]
+        type=["txt", "pdf", "docx", "json"]
     )
     SAVE_DIR = Path("saved_reports")
     SAVE_DIR.mkdir(exist_ok=True)
 
     pdf_path = None
     if upload_file:
+        file_bytes = upload_file.getvalue()
+        text = ""
+        st.session_state.report_data = None
+
         if upload_file.type == "application/pdf":
             pdf_path = (SAVE_DIR / upload_file.name)
             with open(pdf_path, "wb") as f:
-                f.write(upload_file.getvalue())
-            pdf = PyPDF2.PdfReader(upload_file)
-            text = ""
+                f.write(file_bytes)
+            pdf = PyPDF2.PdfReader(io.BytesIO(file_bytes))
 
             for page in pdf.pages:
-                text += (page.extract_text() or "")
+                text += (page.extract_text() or "") + "\n"
+
+            if not text.strip():
+                st.warning(
+                    "No readable text was found in this PDF (it may be a scan). "
+                    "All fields will be reported as missing."
+                )
+
+        elif upload_file.name.lower().endswith(".docx"):
+            try:
+                from docx import Document  # pip install python-docx
+                doc = Document(io.BytesIO(file_bytes))
+                text = "\n".join(p.text for p in doc.paragraphs)
+            except Exception:
+                st.warning("Could not read this .docx file.")
+
+        elif upload_file.name.lower().endswith(".json"):
+            try:
+                parsed = json.loads(file_bytes.decode("utf-8-sig"))
+                st.session_state.report_data = parsed
+                text = json.dumps(parsed, indent=2)
+            except Exception:
+                st.error("Could not read this JSON file. Check that it is valid JSON.")
 
         else:
-            text = upload_file.read().decode("utf-8")
+            text = file_bytes.decode("utf-8", errors="ignore")
         
         st.session_state.report_text = text
 
     if st.button("Analyze Report"):
-        report = Report(
-        officer_id = "123",
-        officer_name = "John Doe",
-        report_date = "2026-01-01",
-        port_of_entry= "Entry Point", 
-        traveler_name= "Traveler Name",
-        travel_documents= "Documents",
-        citizenship= "Citizenship",
-        nationality= "Nationality",
-        passport_number= None,
-        claimed_status= "Status",
-        purpose_of_travel= "Purpose",
-        arrival_method= None,
-        traveler_statements= "Statements",
-        officer_observations= "Observations",
-        inspection_findings= "Findings",
-        charge_code= "8_USC_1325",
-        ina_section= "Section",
-        inadmissibility_explanation= "Explanation",
-        traveler_response= "Response",
-        officer_analysis_of_response= "Analysis",
-        disposition= "Disposition",
-        forms_used= "Forms Used",
-        supervisory_review= "Review",
-        service_acknowledgement="Acknowledgement",
-        facts = st.session_state.report_text,
-        narrative = st.session_state.report_text,
-        evidence = " "
-        )
+        if not st.session_state.report_text.strip():
+            st.warning("Upload a report with readable text first.")
+        else:
+            with st.spinner("Analyzing Report..."):
+                valid_charge_ids = [c["charge_id"] for c in charges["charges"]]
 
-        with st.spinner("Analyzing Report..."):
-            missing = check_missing_info(report)
-            charge_results = validate_charge(report.model_dump())
-            ai_results = analyze_report(report, charge_results, [])
-            st.session_state.results = {
-                "missing": missing,
-                "charge": charge_results,
-                "ai": ai_results
-            }
+                report = None
+
+                # JSON that already uses the Report field names is loaded directly.
+                if st.session_state.report_data is not None:
+                    report, matched = report_from_dict(
+                        st.session_state.report_data,
+                        st.session_state.report_text,
+                    )
+                    if matched < 3:  # unfamiliar layout, so extract from the text instead
+                        report = None
+
+                # Otherwise pull the fields out of the report text. Anything not found is None.
+                if report is None:
+                    report = extract_data_report(
+                        st.session_state.report_text,
+                        valid_charge_ids,
+                    )
+
+                missing = check_missing_info(report)
+                charge_results = validate_charge(report.model_dump())
+                ai_results = analyze_report(report, charge_results, [])
+                st.session_state.results = {
+                    "report": report.model_dump(),
+                    "missing": missing,
+                    "charge": charge_results,
+                    "ai": ai_results
+                }
 
     results = st.session_state.results
+
+    # charge code of the analyzed report (stored in results so it survives reruns
+    # and saved-report loads; older saved reports won't have it)
+    current_charge_code = None
+    if results:
+        current_charge_code = results.get("report", {}).get("charge_code")
+
     if results:
         charge_info = next(
             (charge for charge in charges["charges"]
-             if charge["charge_id"] == "8_USC_1325"),
+             if charge["charge_id"] == current_charge_code),
             {},
         )
         st.divider()
 
         ai = results["ai"]
+
+        #Extracted data
+        extracted = results.get("report")
+        if extracted:
+            with st.expander("Extracted Report Data"):
+                st.json({
+                    k: v for k, v in extracted.items()
+                    if k not in ("facts", "narrative")
+                })
+
         st.header("Issues Found")
 
         #Missing Info
         st.subheader("Missing Information")
+        if not results["missing"]:
+            st.success("No missing information found.")
         for item in results["missing"]:
             st.markdown(f"""
                 <div class="issue-card missing">
@@ -309,14 +353,8 @@ with left_col:
     st.subheader("Legal Reference")
 
     charge_info = None
-    if st.session_state.results:
-        try:
-            charge_info = next(
-            (charge for charge in charges["charges"] 
-            if charge["charge_id"] == "8_USC_1325"),
-            None )
-        except Exception:
-            charge_info = None
+    if st.session_state.results and current_charge_code:
+        charge_info = get_charge_description(current_charge_code)
 
     if charge_info:
         st.markdown( f"""
@@ -361,6 +399,8 @@ with right_col:
             </div>
             """, unsafe_allow_html=True)
             pdf_viewer(upload_file.getvalue(), width=900)
+        elif upload_file.name.lower().endswith(".json") and st.session_state.report_data is not None:
+            st.json(st.session_state.report_data)
         else:
             st.markdown("""
             <div style="
