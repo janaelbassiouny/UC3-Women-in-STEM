@@ -190,13 +190,35 @@ with left_col:
         st.session_state.report_text = text
 
     if st.button("Analyze Report"):
-        if not st.session_state.report_text.strip():
-            st.warning("Upload a report with readable text first.")
-        else:
-            with st.spinner("Analyzing Report..."):
-                valid_charge_ids = [c["charge_id"] for c in charges["charges"]]
 
-                report = None
+    report = extract_data_report(
+        st.session_state.report_text,
+        valid_charge_ids=[
+            c["charge_id"]
+            for c in charges["charges"]
+        ]
+    )
+
+    with st.spinner("Analyzing Report..."):
+
+        missing = check_missing_info(report)
+
+        charge_results = validate_charge(
+            report.model_dump()
+        )
+
+        ai_results = analyze_report(
+            report,
+            charge_results,
+            []
+        )
+
+        st.session_state.results = {
+            "missing": missing,
+            "charge": charge_results,
+            "ai": ai_results
+        }
+
 
                 # JSON that already uses the Report field names is loaded directly.
                 if st.session_state.report_data is not None:
@@ -213,7 +235,19 @@ with left_col:
                         st.session_state.report_text,
                         valid_charge_ids,
                     )
-
+                st.subheader("Debug Information")
+                st.write(    
+                    "Extracted Text Length:",
+                    len(st.session_state.report_text)
+                )
+                st.text_area(    
+                    "Raw Report Text",
+                    st.session_state.report_text,
+                    height=250
+                )
+                st.write("Parsed Report Object")
+                st.json(report.model_dump())
+        
                 missing = check_missing_info(report)
                 charge_results = validate_charge(report.model_dump())
                 ai_results = analyze_report(report, charge_results, [])
