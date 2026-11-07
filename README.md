@@ -29,4 +29,4 @@
 <b>python -m streamlit run AppUI.py</b>
 
 <h3>Live Demo</h3>
-<p>Added after delpoyment</p>
+<p>https://uc3-wis-aipoliceanalyzer.streamlit.app/</p>
